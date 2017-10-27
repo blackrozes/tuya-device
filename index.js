@@ -32,13 +32,8 @@ TuyaDevice.prototype.getStatus = function(callback) {
   var buffer = Buffer.from(requests[this.type].status.prefix + strEncode(JSON.stringify(requests[this.type].status.command), 'hex') + requests[this.type].status.suffix, 'hex');
 
   this._send(buffer, function(error, result) {
-    if (error) { return callback(error, null); }
-
-    // Extract returned JSON
-    result = result.toString();
-    result = result.slice(result.indexOf('{'), result.lastIndexOf('}') + 1);
-    result = JSON.parse(result);
-    return callback(null, result['dps']['1']);
+    if (error) {callback(error, null); }
+    callback(null, result['dps']['1']);
   });
 }
 
@@ -54,7 +49,7 @@ TuyaDevice.prototype.setStatus = function(on, callback) {
   if ('uid' in thisRequest.command) {
     thisRequest.command.uid = this.uid; }
   if ('t' in thisRequest.command) {
-    thisRequest.command.t = (parseInt(now.getTime() / 1000)).toString(); }
+    thisRequest.command.t = '1508364931'; }// (parseInt(now.getTime() / 1000)).toString(); }
 
   // encrypt data
   this.cipher.start({iv: ''});
@@ -64,37 +59,40 @@ TuyaDevice.prototype.setStatus = function(on, callback) {
   // encode binary data to Base64
   var data = forge.util.encode64(this.cipher.output.data);
 
+  // create md5
   var preMd5String = "data="+data+"||lpv="+this.version+"||"+this.key;
-  var md5hash = forge.md.md5.create().update(preMd5String).digest().toHex();
+  var md5hash = forge.md.md5.create().update(preMd5String).digest("hex");
   var md5 = md5hash.toString().toLowerCase().substr(8, 16);
-
-  // create byte buffer from hex data
-  var buffer = Buffer.from(thisRequest.prefix + strEncode(this.version + md5 + data, 'hex') + thisRequest.suffix, 'hex');
-
-  // send request to change status
-  var that = this;
+  
+  // create byte buffer from hex data 
+  var bufferData = strEncode(this.version + md5 + data, 'hex');
+  var buffer = new Buffer(171);
+  buffer.write('000055aa00000000000000070000009b'+ bufferData,0,"hex");
+  buffer.write('0000aa55',167,"hex");
+  
+  console.log(buffer.toString());
   this._send(buffer, function(error, result) {
-    if (error) { return callback(error, null); }
-    // setting the status returns a specific value if successful
-    else if (strEncode(result, 'hex') != requests[that.type][!on ? 'off' : 'on'].returns) {
-      return callback(new Error('returned value does not match expected value'), null);
-    }
-    else { return callback(null, true); }
+    console.log(error);
+    console.log(result);
   });
 }
 
 TuyaDevice.prototype._send = function(buffer, callback) {
   // the local services of devices seem to be a bit flakey, so we'll retry the connection a couple times
   retryConnect.to({port: 6668, host: this.ip}, function (error, client) {
-    if (error) { return callback(error, null); }
+    if (error) { callback(error, null); }
 
     client.write(buffer);
-
     client.on('data', function(data) {
+      console.log('Returned data: ' + data.toString());
       client.destroy();
-      return callback(null, data);
+      data = data.toString();
+      data = data.slice(data.indexOf('{'), data.lastIndexOf('}') + 1);
+      data = JSON.parse(data);
+
+      callback(null, data);
     }).on('error', function (error) {
-      return callback(error, null);
+      callback(error, null);
     });
   });
 }
